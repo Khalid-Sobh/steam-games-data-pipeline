@@ -1,0 +1,121 @@
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile.airflow
+  env_file: .env
+  environment:
+    # Database
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    # Executor
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    # GCP credentials (key file is mounted below)
+    GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/keys/sa-key.json
+    # Pass env vars as Airflow variables automatically
+    AIRFLOW_VAR_GCP_PROJECT: ${GCP_PROJECT_ID}
+    AIRFLOW_VAR_GCS_BUCKET: ${GCS_BUCKET}
+    AIRFLOW_VAR_BQ_DATASET: ${BQ_DATASET}
+    AIRFLOW_VAR_GCP_REGION: ${GCP_REGION}
+    AIRFLOW_VAR_GCP_LOCATION: ${GCP_LOCATION}
+    AIRFLOW_VAR_KAGGLE_USERNAME: ${KAGGLE_USERNAME}
+    AIRFLOW_VAR_KAGGLE_KEY: ${KAGGLE_KEY}
+    # Airflow connection for GCP (auto-configured via key file)
+    AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: >-
+      google-cloud-platform://?extra__google_cloud_platform__key_path=%2Fopt%2Fairflow%2Fkeys%2Fsa-key.json&extra__google_cloud_platform__project=${GCP_PROJECT_ID}
+    # Host path needed by DockerOperator to bind-mount dbt and keys folders
+    HOST_WORKDIR: ${HOST_WORKDIR}  
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./airflow/logs:/opt/airflow/logs
+    - ./airflow/plugins:/opt/airflow/plugins
+    - ./keys:/opt/airflow/keys:ro
+    - ./spark:/opt/airflow/spark:ro
+    - /var/run/docker.sock:/var/run/docker.sock
+  depends_on:
+    postgres:
+      condition: service_healthy
+  user: "${AIRFLOW_UID:-50000}:0"
+  group_add:
+    - "103"
+  
+
+# ── Services ─────────────────────────────────────────────────────────────────
+services:
+
+  # Airflow metadata database
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # One-time DB init + admin user creation
+  # airflow-init:
+  #   <<: *airflow-common
+  #   command: >
+  #     bash -c "
+  #       airflow db upgrade &&
+  #       (airflow users create \
+  #         --username ${AIRFLOW_ADMIN_USERNAME:-admin} \
+  #         --password ${AIRFLOW_ADMIN_PASSWORD:-admin} \
+  #         --firstname Admin \
+  #         --lastname User \
+  #         --role Admin \
+  #         --email ${AIRFLOW_ADMIN_EMAIL:-admin@example.com} \
+  #       || airflow users reset-password \
+  #         --username ${AIRFLOW_ADMIN_USERNAME:-admin} \
+  #         --password ${AIRFLOW_ADMIN_PASSWORD:-admin})
+  #     "
+  #   restart: "no"
+  airflow-init:
+    <<: *airflow-common
+    command: bash -c "airflow db upgrade && (airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || airflow users reset-password --username admin --password admin)"
+    restart: "no"
+
+  # Airflow web UI
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Airflow scheduler
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    restart: always
+
+  # dbt runner — stays alive, DAG execs into it
+  dbt:
+    image: ghcr.io/dbt-labs/dbt-bigquery:1.7.0
+    container_name: steam-dbt
+    env_file: .env
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /usr/app/keys/sa-key.json
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+      BQ_DATASET: ${BQ_DATASET}
+      GCP_LOCATION: ${GCP_LOCATION}
+    volumes:
+      - ./dbt:/usr/app/dbt
+      - ./keys:/usr/app/keys:ro
+    working_dir: /usr/app/dbt
+    entrypoint: ["bash", "-c", "tail -f /dev/null"]
+    restart: unless-stopped
+
+volumes:
+  postgres-db:

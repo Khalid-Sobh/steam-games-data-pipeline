@@ -1,0 +1,28 @@
+version: 2
+
+sources:
+  - name: steam_warehouse
+    database: "{{ env_var('GCP_PROJECT_ID') }}"
+    schema: steam_warehouse
+    description: "Raw Steam games data loaded from GCS by Airflow"
+    tables:
+      - name: raw_games
+        description: "Raw Steam games table loaded from Parquet (Spark output)"
+        columns:
+          - name: app_id
+            description: "Steam App ID (unique)"
+            tests:
+              - not_null
+              - unique
+          - name: name
+            description: "Game title"
+            tests:
+              - not_null
+          - name: release_year
+            description: "Year of release (parsed from release_date)"
+          - name: price
+            description: "Price in USD (0.0 = free)"
+          - name: metacritic_score
+            description: "Metacritic score (0 = not rated)"
+          - name: genres
+            description: "Array of genre strings"

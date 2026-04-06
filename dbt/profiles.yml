@@ -1,0 +1,15 @@
+steam_pipeline:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: service-account
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
+      dataset: "{{ env_var('BQ_DATASET', 'steam_warehouse') }}"
+      keyfile: /usr/app/keys/sa-key.json
+      location: "{{ env_var('GCP_LOCATION', 'US') }}"
+      threads: 4
+      timeout_seconds: 300
+      priority: interactive
+
+

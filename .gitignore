@@ -1,0 +1,15 @@
+keys/
+.env
+data/
+airflow/logs/
+__pycache__/
+*.pyc
+*.pyo
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+target/
+dbt_packages/
+*.egg-info/
+.DS_Store

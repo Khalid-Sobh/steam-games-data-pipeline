@@ -1,0 +1,18 @@
+name: steam_pipeline
+version: "1.0.0"
+config-version: 2
+profile: steam_pipeline
+
+model-paths:  ["models"]
+test-paths:   ["tests"]
+target-path:  "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  steam_pipeline:
+    staging:
+      +materialized: view
+      +schema: steam_warehouse
+    marts:
+      +materialized: table
+      +schema: steam_warehouse
